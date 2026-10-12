@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Unreachable Access Land</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/pmtiles@3.2.1/dist/pmtiles.js"></script>
+<style>
+  :root {
+    --bg: #ffffff; --panel: #f7f6f3; --text: #1d1d1b; --muted: #6b6a66; --line: #e2e0da;
+    --landlocked: #d7263d; --near_miss: #ee8e1a; --permissive_only: #8e44ad; --presumed_accessible: #8fbf5a; --evidence_of_entry: #1f7a46; --unknown_no_data: #8a8a8a;
+    --weak: #c2185b; --prow: #b0127a; --barrier: #1565c0; --accent: #1d1d1b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #161615; --panel: #1f1f1d; --text: #ecebe7; --muted: #a3a29c; --line: #34332f; --accent: #ecebe7; }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #app { display: flex; height: 100%; }
+  aside { width: 350px; flex: none; background: var(--panel); border-right: 1px solid var(--line);
+    display: flex; flex-direction: column; overflow-y: auto; }
+  #map { flex: 1; }
+  header { padding: 16px 16px 8px; }
+  h1 { font-size: 17px; margin: 0 0 2px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 12.5px; margin: 0; }
+  #headline { margin-top: 10px; font-size: 13.5px; }
+  #headline b { font-size: 15px; font-variant-numeric: tabular-nums; }
+  #headline .m { color: var(--muted); font-size: 12px; display: block; }
+  section { padding: 8px 16px; border-top: 1px solid var(--line); }
+  h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 6px 0; font-weight: 600; }
+  label.row { display: flex; align-items: center; gap: 8px; padding: 3px 0; cursor: pointer; }
+  .sw { width: 14px; height: 14px; border-radius: 3px; flex: none; }
+  .ln { width: 18px; height: 0; border-top: 3px dashed var(--prow); flex: none; }
+  .count { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12.5px; }
+  details { font-size: 12.5px; color: var(--muted); margin: 4px 0 2px; }
+  details summary { cursor: pointer; }
+  details dt { color: var(--text); font-weight: 600; margin-top: 6px; }
+  details dd { margin: 0; }
+  .seg { display: flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .seg button { flex: 1; border: 0; background: transparent; color: var(--text); padding: 5px; cursor: pointer; font: inherit; font-size: 12.5px; }
+  .seg button.on { background: var(--accent); color: var(--bg); }
+  #list { padding: 0 8px 8px; }
+  #list-note { color: var(--muted); font-size: 12px; padding: 0 16px 6px; }
+  .item { padding: 7px 8px; border-radius: 6px; cursor: pointer; display: grid;
+    grid-template-columns: 10px 1fr auto; gap: 2px 8px; align-items: center; }
+  .item:hover { background: var(--line); }
+  .item .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .item .dot.weak { background: transparent !important; border: 2px dashed var(--weak); }
+  .item .a { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .item .r { grid-column: 2 / 4; color: var(--muted); font-size: 12px; }
+  .item .v { font-size: 11px; padding: 1px 6px; border-radius: 9px; background: var(--line); }
+  .btn { border: 1px solid var(--line); background: var(--bg); color: var(--text); border-radius: 6px;
+    padding: 5px 10px; font: inherit; font-size: 12.5px; cursor: pointer; }
+  .tools { display: flex; gap: 6px; align-items: center; }
+  #msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 24px;
+    background: var(--bg); text-align: center; z-index: 5; }
+  .maplibregl-popup-content { background: var(--bg); color: var(--text); border-radius: 8px; padding: 12px 14px; font: inherit; min-width: 240px; }
+  .maplibregl-popup-tip { border-top-color: var(--bg) !important; border-bottom-color: var(--bg) !important; }
+  .pop h3 { margin: 0 0 4px; font-size: 15px; }
+  .pop h4 { margin: 10px 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .pop .badge { display: inline-block; color: #fff; font-size: 11.5px; padding: 1px 7px; border-radius: 9px; margin-bottom: 6px; }
+  .pop p { margin: 3px 0; }
+  .pop .m { color: var(--muted); font-size: 12px; }
+  .pop .warn { border-left: 3px solid var(--weak); padding-left: 7px; }
+  .pop .opts { display: flex; gap: 4px; }
+  .pop .opts button { flex: 1; font-size: 12px; padding: 4px; }
+  .pop .opts button.on { background: var(--accent); color: var(--bg); }
+  .pop .field { display: flex; gap: 4px; margin-top: 4px; align-items: center; }
+  .pop input[type=date], .pop textarea { font: inherit; font-size: 12px; background: var(--bg); color: var(--text);
+    border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
+  .pop textarea { width: 100%; resize: vertical; min-height: 44px; margin-top: 4px; }
+  .pop a { color: inherit; }
+  .pop .links { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+  @media (max-width: 720px) {
+    #app { flex-direction: column-reverse; }
+    aside { width: 100%; height: 45%; border-right: 0; border-top: 1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <aside>
+    <header>
+      <h1>Unreachable access land</h1>
+      <p class="sub">Open-access land in England that no public right of way or public road reaches. Candidates for checking, not legal findings.</p>
+      <div id="headline"></div>
+    </header>
+    <section>
+      <div style="display:flex;align-items:center"><h2 style="margin-right:auto">Status</h2>
+        <div class="seg" id="units" style="width:150px">
+          <button data-u="ha" class="on">ha</button><button data-u="km2">km²</button><button data-u="mi2">sq mi</button>
+        </div></div>
+      <div id="legend"></div>
+      <details><summary>What the statuses mean</summary><dl id="about"></dl></details>
+    </section>
+    <section>
+      <h2>Layers</h2>
+      <label class="row"><input type="checkbox" id="t-prow" checked><span class="ln"></span>Public rights of way</label>
+      <label class="row"><input type="checkbox" id="t-barriers" checked><span class="ln" style="border-top:3px solid var(--barrier)"></span>Barriers (motorways, railways, canals, rivers)</label>
+      <label class="row"><input type="checkbox" id="t-gates" checked><span class="sw" style="background:#fff;border:2px solid #1f7a46;border-radius:50%;width:10px;height:10px;margin:0 4px"></span>Gates &amp; stiles (OSM; red = locked)</label>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:8px"><span class="sub" style="width:110px">Show land as</span>
+        <div class="seg" id="view" style="flex:1"><button data-v="bubbles" class="on">Bubbles</button><button data-v="areas">Areas</button></div></div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:6px"><span class="sub" style="width:110px">Background</span>
+      <div class="seg" style="flex:1" id="basemap">
+        <button data-b="osm" class="on">Map</button><button data-b="sat">Satellite</button>
+      </div></div>
+    </section>
+    <section>
+      <h2>Take it with you</h2>
+      <p class="sub">All candidates, for OsmAnd, Gaia, Locus, Google My Maps and similar:
+        <a id="dl-gpx" href="#" download>pins (GPX)</a> · <a id="dl-kml" href="#" download>outlines (KML)</a></p>
+    </section>
+    <section class="tools">
+      <h2 style="margin-right:auto">Candidates in view</h2>
+      <button class="btn" id="export" title="Download your checks and field reports as CSV">Export checks</button>
+    </section>
+    <div id="list-note"></div>
+    <div id="list"></div>
+  </aside>
+  <div id="map" style="position:relative"><div id="msg"></div></div>
+</div>
+<script>
+const NAME = new URLSearchParams(location.search).get("d") || "england";
+let popup, map, D;  // declared up front: map clicks can arrive before the rest of the script runs
+const STATUS = {
+  landlocked: "Landlocked", near_miss: "Near miss", permissive_only: "Permissive access only",
+  presumed_accessible: "Presumed accessible", evidence_of_entry: "Evidence of entry (OSM)", unknown_no_data: "Unknown (no path data)",
+};
+const ABOUT = {
+  landlocked: "No public right of way, public road or other legal way in within 50m of the boundary.",
+  near_miss: "The nearest public way is 10–50m away, or a railway, river or motorway sits in the gap. The land in between is usually private.",
+  permissive_only: "No legal way in, but the owner provides one: OpenStreetMap shows a permissive path in, or the owner dedicated the land (s16) and their road or track reaches it. Provisional: the owner can withdraw it, and it hasn't been checked on the ground.",
+  presumed_accessible: "Legally accessible on paper: a public right of way or road reaches the boundary, or it adjoins other reachable access land within 10m. Not proof you can get in on the ground.",
+  evidence_of_entry: "As presumed accessible, plus a gate or stile mapped in OpenStreetMap on the boundary by the path or road.",
+  unknown_no_data: "Too little rights-of-way data nearby to judge.",
+  weak: "Accessible on paper, but the path stops a few metres short of the boundary, a strip of a few metres separates it from the neighbouring access land, or OSM shows a locked gate there. Worth checking first.",
+};
+const NO_LEGAL_WAY = ["landlocked", "near_miss", "permissive_only"];
+const ACCESSIBLE = ["presumed_accessible", "evidence_of_entry"];
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const COLOR = Object.fromEntries(Object.keys(STATUS).map(s => [s, css("--" + s)]));
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+// ---- your checks: saved in this browser only, exported as CSV ----
+const VERDICTS = { genuine: "Genuine", false_positive: "False positive", unsure: "Unsure" };
+const OUTCOMES = { open: "Got in", blocked: "Blocked", not_found: "Couldn't find a way in" };
+let checks = {};
+try { checks = JSON.parse(localStorage.getItem("checks") || "{}"); } catch (e) {}
+const saveChecks = () => { try { localStorage.setItem("checks", JSON.stringify(checks)); } catch (e) {} };
+
+const shown = new Set(Object.keys(STATUS));
+let showWeak = true;
+
+// ---- units: everything is stored in hectares and converted for display ----
+const UNITS = { ha: { f: 1, label: "ha", dp: 1 }, km2: { f: 0.01, label: "km²", dp: 2 },
+                mi2: { f: 0.00386102, label: "sq mi", dp: 3 } };
+let unit = "ha";
+try { unit = localStorage.getItem("unit") || "ha"; } catch (e) {}
+const fmtArea = (ha, extra = 0) => {
+  const u = UNITS[unit] || UNITS.ha, dp = Math.max(0, u.dp + extra);
+  return `${(ha * u.f).toLocaleString(undefined, { maximumFractionDigits: dp, minimumFractionDigits: dp })} ${u.label}`;
+};
+const n = x => x.toLocaleString();
+
+function showMsg(html) { const m = document.getElementById("msg"); m.innerHTML = html; m.style.display = "flex"; }
+
+fetch(`data/${NAME}.json`).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(start).catch(e => showMsg(
+  location.protocol === "file:"
+    ? "This map needs a small local web server.<br>Run <code>python web/serve.py</code> and open http://localhost:8000/"
+    : `Couldn't load data/${esc(NAME)}.json (${esc(e.message)}).`));
+
+let byId = {};
+function start(data) {
+  D = data;
+  byId = Object.fromEntries(D.candidates.map(p => [p.cluster_id, p]));
+  renderLegend();
+  const protocol = new pmtiles.Protocol();
+  maplibregl.addProtocol("pmtiles", protocol.tile);
+  const tiles = layer => "pmtiles://" + new URL(`tiles/${NAME}/${layer}.pmtiles`, location.href).href;
+
+  map = new maplibregl.Map({
+    container: "map",
+    bounds: D.bounds, fitBoundsOptions: { padding: 20 },
+    // OpenFreeMap: free vector basemap, no key (OSM's own tile servers block pages like this one)
+    style: "https://tiles.openfreemap.org/styles/liberty",
+  });
+  map.addControl(new maplibregl.NavigationControl(), "top-right");
+  map.addControl(new maplibregl.ScaleControl({ unit: "metric" }));
+  const statusColor = ["match", ["get", "status"], ...Object.entries(COLOR).flat(), "#888"];
+  const width = (a, b) => ["interpolate", ["linear"], ["zoom"], 9, a, 15, b];
+
+  map.on("load", () => {
+    // satellite sits on top of the vector basemap but under our layers
+    map.addSource("sat", { type: "raster", tileSize: 256, maxzoom: 19,
+      tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
+      attribution: "Imagery © Esri" });
+    map.addLayer({ id: "sat", type: "raster", source: "sat", layout: { visibility: "none" } });
+
+    const attribution = "Access land, coastal margin © Natural England · Paths via rowmaps.com · © Ordnance Survey · © OpenStreetMap contributors";
+    for (const l of ["clusters", "clusters_lo", "prow", "barriers", "gates"])
+      map.addSource(l, { type: "vector", url: tiles(l), ...(l === "clusters" ? { attribution } : {}) });
+
+    // access land outlines: a simplified copy below zoom 9 ("lo-"), full detail from 9 ("c-")
+    for (const [p, src] of [["lo", "clusters_lo"], ["c", "clusters"]]) {
+      const z = p === "lo" ? { maxzoom: 9 } : { minzoom: 9 };
+      map.addLayer({ id: p + "-fill", type: "fill", source: src, "source-layer": src, ...z,
+        paint: { "fill-color": statusColor,
+          "fill-opacity": ["case", ["in", ["get", "status"], ["literal", ACCESSIBLE]], 0.2, 0.45] } });
+      map.addLayer({ id: p + "-line", type: "line", source: src, "source-layer": src, ...z,
+        paint: { "line-color": statusColor, "line-width": ["interpolate", ["linear"], ["zoom"], 5, 0.2, 9, 0.8, 15, 2.5] } });
+      map.addLayer({ id: p + "-weak", type: "line", source: src, "source-layer": src, ...z,
+        paint: { "line-color": css("--weak"), "line-width": width(1.2, 3), "line-dasharray": [2, 1.5] } });
+    }
+    map.addLayer({ id: "c-sel", type: "line", source: "clusters", "source-layer": "clusters",
+      filter: ["==", ["get", "cluster_id"], ""], paint: { "line-color": "#000", "line-width": 3.5 } });
+    map.addLayer({ id: "barriers", type: "line", source: "barriers", "source-layer": "barriers",
+      paint: { "line-color": css("--barrier"), "line-width": width(0.5, 4),
+        "line-opacity": ["interpolate", ["linear"], ["zoom"], 9, 0.35, 13, 0.85] } });
+    map.addLayer({ id: "prow", type: "line", source: "prow", "source-layer": "prow", minzoom: 10,
+      paint: { "line-color": css("--prow"), "line-width": width(0.7, 2.5), "line-dasharray": [2, 1.5] } });
+    map.addLayer({ id: "gates", type: "circle", source: "gates", "source-layer": "gates", minzoom: 13,
+      paint: { "circle-radius": 3.5, "circle-color": "#fff", "circle-stroke-width": 2,
+        "circle-stroke-color": ["case", ["==", ["get", "locked"], 1], "#d7263d", "#1f7a46"] } });
+
+    // dots for candidates when zoomed out, sized by area, fading as the polygons become visible
+    map.addSource("candidates", { type: "geojson", data: { type: "FeatureCollection",
+      features: D.candidates.filter(p => !ACCESSIBLE.includes(p.status)).map(p => ({ type: "Feature",
+        properties: { cluster_id: p.cluster_id, status: p.status, area_ha: p.area_ha },
+        geometry: { type: "Point", coordinates: [p.lon, p.lat] } })) } });
+    map.addLayer({ id: "c-dot", type: "circle", source: "candidates", maxzoom: 13,
+      paint: { "circle-color": statusColor,
+        "circle-radius": ["interpolate", ["linear"], ["sqrt", ["get", "area_ha"]], 0, 3, 7, 11],
+        "circle-stroke-color": "#fff", "circle-stroke-width": 1,
+        "circle-opacity": ["interpolate", ["linear"], ["zoom"], 11, 0.9, 13, 0],
+        "circle-stroke-opacity": ["interpolate", ["linear"], ["zoom"], 11, 1, 13, 0] } });
+
+    ["c-fill", "lo-fill", "c-dot"].forEach(l => {
+      map.on("click", l, e => {
+        const id = e.features[0].properties.cluster_id;
+        openPopup(byId[id] || e.features[0].properties, e.lngLat);
+      });
+      map.on("mouseenter", l, () => map.getCanvas().style.cursor = "pointer");
+      map.on("mouseleave", l, () => map.getCanvas().style.cursor = "");
+    });
+    map.on("moveend", renderList);
+    applyFilter();
+    applyView();
+  });
+  // ?debug logs what each layer drew, for headless checks
+  if (new URLSearchParams(location.search).has("debug")) {
+    map.on("error", e => console.log("map error " + (e.error && e.error.message)));
+    map.on("load", () => console.log("map load"));
+    map.on("idle", () => console.log("idle " + ["c-fill", "c-weak", "c-dot", "prow", "barriers", "gates"]
+      .concat(["lo-fill", "lo-weak"]).map(l => l + ":" + map.queryRenderedFeatures({ layers: [l] }).length).join(" ")));
+  }
+  renderList();
+}
+
+function applyFilter() {
+  const f = ["in", ["get", "status"], ["literal", [...shown]]];
+  ["c-fill", "c-line", "lo-fill", "lo-line", "c-dot"].forEach(l => map && map.getLayer(l) && map.setFilter(l, f));
+  for (const l of ["c-weak", "lo-weak"]) if (map && map.getLayer(l)) {
+    map.setFilter(l, ["all", f, ["==", ["get", "weak_entry"], 1]]);
+    map.setLayoutProperty(l, "visibility", showWeak ? "visible" : "none");
+  }
+  renderList();
+}
+
+// ---- headline, legend & explanations ----
+function renderLegend() {
+  const S = D.summary, st = s => S.status[s] || { n: 0, ha: 0 };
+  const nl = NO_LEGAL_WAY.reduce((a, s) => ({ n: a.n + st(s).n, ha: a.ha + st(s).ha }), { n: 0, ha: 0 });
+  document.getElementById("headline").innerHTML =
+    `No legal way in: <b>${n(nl.n)} areas · ${fmtArea(nl.ha, -1)}</b>
+     <span class="m">Landlocked, near misses and permissive-only together. ${n(S.slivers.n)} slivers under
+     ${S.slivers.min_ha} ha left out of all totals. Data built ${esc(S.built)}.</span>`;
+  const rows = Object.entries(STATUS).filter(([s]) => st(s).n).map(([s, name]) =>
+    `<label class="row" title="${esc(ABOUT[s])}"><input type="checkbox" data-s="${s}" ${shown.has(s) ? "checked" : ""}>
+     <span class="sw" style="background:${COLOR[s]}"></span>${name}
+     <span class="count">${n(st(s).n)} · ${fmtArea(st(s).ha, -1)}</span></label>`);
+  rows.push(`<label class="row" title="${esc(ABOUT.weak)}"><input type="checkbox" id="s-weak" ${showWeak ? "checked" : ""}>
+     <span class="sw" style="border:2px dashed var(--weak)"></span>Weak way in (check first)
+     <span class="count">${n(S.weak.n)} · ${fmtArea(S.weak.ha, -1)}</span></label>`);
+  document.getElementById("legend").innerHTML = rows.join("");
+  document.getElementById("about").innerHTML = [...Object.entries(STATUS), ["weak", "Weak way in"]]
+    .map(([s, name]) => `<dt>${name}</dt><dd>${ABOUT[s]}</dd>`).join("");
+}
+const unitSeg = document.getElementById("units");
+[...unitSeg.children].forEach(b => b.classList.toggle("on", b.dataset.u === unit));
+unitSeg.onclick = e => {
+  const u = e.target.dataset.u; if (!u) return;
+  unit = u;
+  try { localStorage.setItem("unit", u); } catch (err) {}
+  [...unitSeg.children].forEach(b => b.classList.toggle("on", b === e.target));
+  if (!D) return;
+  renderLegend(); renderList();
+  if (popup && popup.isOpen() && popup._p) openPopup(popup._p, popup.getLngLat());
+};
+document.getElementById("legend").addEventListener("change", e => {
+  if (e.target.id === "s-weak") showWeak = e.target.checked;
+  else e.target.checked ? shown.add(e.target.dataset.s) : shown.delete(e.target.dataset.s);
+  applyFilter();
+});
+
+document.getElementById("dl-gpx").href = `downloads/${NAME}_candidates.gpx`;
+document.getElementById("dl-kml").href = `downloads/${NAME}_candidates.kml`;
+
+// ---- bubbles (candidates as dots sized by area) or areas (every access-land outline, by status) ----
+let view = "bubbles";
+try { view = localStorage.getItem("view") || "bubbles"; } catch (e) {}
+view = new URLSearchParams(location.search).get("view") || view;  // e.g. ?view=areas for a shared link
+const viewSeg = document.getElementById("view");
+function applyView() {
+  [...viewSeg.children].forEach(b => b.classList.toggle("on", b.dataset.v === view));
+  if (!map || !map.getLayer("c-dot")) return;
+  map.setLayoutProperty("c-dot", "visibility", view === "bubbles" ? "visible" : "none");
+  // outlines are drawn from zoom 4, but under the bubbles they'd just be clutter until zoom 7
+  ["lo-fill", "lo-line", "lo-weak"].forEach(l => map.setLayerZoomRange(l, view === "bubbles" ? 7 : 0, 9));
+}
+viewSeg.onclick = e => {
+  const v = e.target.dataset.v; if (!v) return;
+  view = v;
+  try { localStorage.setItem("view", v); } catch (err) {}
+  applyView();
+};
+applyView();
+
+// ---- layer toggles & basemap ----
+const vis = (id, on) => map && map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
+document.getElementById("t-prow").onchange = e => vis("prow", e.target.checked);
+document.getElementById("t-barriers").onchange = e => vis("barriers", e.target.checked);
+document.getElementById("t-gates").onchange = e => vis("gates", e.target.checked);
+document.getElementById("basemap").onclick = e => {
+  const b = e.target.dataset.b; if (!b) return;
+  [...e.currentTarget.children].forEach(x => x.classList.toggle("on", x === e.target));
+  vis("sat", b === "sat");
+};
+
+// ---- candidate list: what's in view, largest first ----
+const LIST_MAX = 200;
+const inList = p => shown.has(p.status) && (!ACCESSIBLE.includes(p.status) || (showWeak && p.weak_entry));
+function renderList() {
+  if (!D) return;
+  const b = map && map.getBounds && map.getBounds();
+  const items = D.candidates.filter(p => inList(p) && (!b ||
+    (p.bbox[0] <= b.getEast() && p.bbox[2] >= b.getWest() && p.bbox[1] <= b.getNorth() && p.bbox[3] >= b.getSouth())))
+    .sort((x, y) => y.area_ha - x.area_ha);
+  document.getElementById("list-note").textContent = items.length > LIST_MAX
+    ? `Largest ${LIST_MAX} of ${n(items.length)} in view. Zoom in to see the rest.` : `${n(items.length)} in view, largest first.`;
+  document.getElementById("list").innerHTML = items.slice(0, LIST_MAX).map(p => {
+    const c = checks[p.cluster_id] || {};
+    const tag = c.field ? OUTCOMES[c.field.outcome] : c.verdict ? VERDICTS[c.verdict] : "";
+    const weak = ACCESSIBLE.includes(p.status);
+    return `<div class="item" data-id="${esc(p.cluster_id)}">
+      <span class="dot ${weak ? "weak" : ""}" style="background:${COLOR[p.status]}"></span>
+      <span class="a">${fmtArea(p.area_ha)} <span style="font-weight:400;color:var(--muted)">· ${esc(p.name || p.authority || "")}</span></span>
+      ${tag ? `<span class="v">${tag}</span>` : "<span></span>"}
+      <span class="r">${esc(weak ? p.weak_why : p.reason)}</span></div>`;
+  }).join("");
+}
+document.getElementById("list").onclick = e => {
+  const el = e.target.closest(".item"); if (!el) return;
+  const p = byId[el.dataset.id];
+  map.fitBounds(p.bbox, { padding: 80, maxZoom: 16 });
+  map.once("moveend", () => openPopup(p, { lng: p.lon, lat: p.lat }));
+};
+
+// ---- popup: details, links, your desk check and field report ----
+function openPopup(p, lngLat) {
+  popup && popup.remove();  // before highlighting: its close handler clears the highlight
+  const id = p.cluster_id, c = checks[id] || {}, f = c.field || {};
+  map.setFilter("c-sel", ["==", ["get", "cluster_id"], id]);
+  const today = new Date().toISOString().slice(0, 10);
+  const html = `<div class="pop">
+    <span class="badge" style="background:${COLOR[p.status]}" title="${esc(ABOUT[p.status])}">${STATUS[p.status]}</span>
+    <h3>${esc(p.name || "Unnamed land")}</h3>
+    <p><b>${fmtArea(p.area_ha, 1)}</b> · ${esc(p.access_type || "Access land")}</p>
+    <p>${esc(p.reason)}</p>
+    ${+p.weak_entry ? `<p class="warn"><b>Weak way in:</b> ${esc(p.weak_why)}</p>` : ""}
+    ${p.osm_hint ? `<p class="m"><b>OSM shows:</b> ${esc(p.osm_hint)}</p>` : ""}
+    <p class="m">${esc(p.authority || "Unknown authority")} · ${p.n_parcels > 1
+      ? `merged from ${p.n_parcels} touching access-land areas` : "a single access-land area"} · ${esc(id)}</p>
+    <p class="links"><a href="https://explore.osmaps.com/?lat=${p.lat}&lon=${p.lon}&zoom=15" target="_blank" rel="noopener">OS Maps ↗</a>
+      <a href="https://www.google.com/maps/@${p.lat},${p.lon},900m/data=!3m1!1e3" target="_blank" rel="noopener">Google satellite ↗</a>
+      ${p.sv_lat ? `<a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${p.sv_lat},${p.sv_lon}" target="_blank" rel="noopener"
+         title="Street View from the nearest road">Street View ↗</a>` : ""}</p>
+    <h4>Your desk check</h4>
+    <div class="opts" data-k="verdict">${Object.entries(VERDICTS).map(([k, t]) =>
+      `<button class="btn ${c.verdict === k ? "on" : ""}" data-v="${k}">${t}</button>`).join("")}</div>
+    <h4>Been there?</h4>
+    <div class="opts" data-k="outcome">${Object.entries(OUTCOMES).map(([k, t]) =>
+      `<button class="btn ${f.outcome === k ? "on" : ""}" data-v="${k}">${t}</button>`).join("")}</div>
+    <div class="field">Visited <input type="date" id="f-date" value="${esc(f.date || today)}" max="${today}"></div>
+    <textarea id="f-note" maxlength="280" placeholder="Short access note, e.g. locked gate at the stile, sign says private">${esc(f.note || "")}</textarea>
+    <div class="field"><button class="btn" id="f-save">Save visit</button>
+      <span class="m" style="margin-left:auto">Saved in this browser only</span></div>
+  </div>`;
+  popup = new maplibregl.Popup({ maxWidth: "330px" }).setLngLat(lngLat).setHTML(html).addTo(map);
+  popup._p = p;
+  popup.on("close", () => map.setFilter("c-sel", ["==", ["get", "cluster_id"], ""]));
+  const el = popup.getElement(), q = s => el.querySelector(s);
+  const save = () => {
+    const e = checks[id] || {};
+    if (!e.verdict && !e.field) delete checks[id];
+    else Object.assign(e, { status: p.status, area_ha: p.area_ha, name: p.name, lat: p.lat, lon: p.lon,
+                            at: new Date().toISOString() });
+    saveChecks(); renderList(); openPopup(p, lngLat);
+  };
+  q('[data-k="verdict"]').onclick = e => {
+    const k = e.target.dataset.v; if (!k) return;
+    const r = checks[id] = checks[id] || {};
+    r.verdict = r.verdict === k ? undefined : k;
+    save();
+  };
+  let outcome = f.outcome;
+  q('[data-k="outcome"]').onclick = e => {
+    const k = e.target.dataset.v; if (!k) return;
+    outcome = outcome === k ? undefined : k;
+    [...e.currentTarget.children].forEach(b => b.classList.toggle("on", b.dataset.v === outcome));
+  };
+  q("#f-save").onclick = () => {
+    const r = checks[id] = checks[id] || {};
+    r.field = outcome ? { outcome, date: q("#f-date").value, note: q("#f-note").value.trim() } : undefined;
+    save();
+  };
+}
+
+// ---- export checks ----
+document.getElementById("export").onclick = () => {
+  const rows = [["cluster_id", "name", "status", "area_ha", "lat", "lon", "desk_check", "visit_outcome",
+                 "visit_date", "access_note", "updated_at"]];
+  Object.entries(checks).forEach(([id, c]) => {
+    const f = c.field || {};
+    rows.push([id, c.name, c.status, c.area_ha, c.lat, c.lon, c.verdict, f.outcome, f.date, f.note, c.at]);
+  });
+  const csv = rows.map(r => r.map(x => `"${String(x ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  a.download = "checks.csv"; a.click();
+};
+</script>
+</body>
+</html>
