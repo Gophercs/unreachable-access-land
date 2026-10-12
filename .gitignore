@@ -1,0 +1,13 @@
+# Only code and docs go on main. Source data is several GB; the built map goes to gh-pages
+# via pipeline/deploy_pages.py.
+*
+!.gitignore
+!README.md
+!pipeline/
+!pipeline/*.py
+!web/
+!web/index.html
+!web/serve.py
+!tests/
+!tests/ui_test.js
+!tests/package.json
